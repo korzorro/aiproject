@@ -1,3 +1,5 @@
+#!venv/bin/python
+
 from recordclass import recordclass
 from datetime import datetime, timedelta
 from csv import reader
@@ -119,7 +121,13 @@ def deadline_met(events, tasks):
             return False
     return True
 
-
+def non_overlapping(events):
+    for i, event in enumerate(events):
+        for j in range(i, len(events)):
+            if not event == events[i]:
+                if event.start < events[i].start:
+                    if event.start+event.duration > events[i].start:
+                        return 
 if __name__ == '__main__':
     tasks, events = read_data('schedule.txt')
     print(split_tasks(tasks))
