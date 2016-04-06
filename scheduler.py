@@ -22,10 +22,17 @@ class Task:
 
 
 class Event:
+
     def __init__(self, name=None, start=None, duration=None):
         self.name = name
         self.start = start
         self.duration = duration
+    
+    def ends_before(self, event):
+        return self.start + self.duration <= event.start
+    
+    def overlaps(self, event):
+        return not (event.ends_before(self) or self.ends_before(event))
 
     def __hash__(self):
         return hash(self.name)
@@ -124,7 +131,7 @@ def is_consistent(events, constraints):
 
 def is_complete(events):
     for event in events:
-        if event.start_time is None:
+        if not event.start:
             return False
     return True
 
@@ -147,9 +154,9 @@ def duration_met(task, events):
 
 
 def deadline_met(events, tasks):
-    for task in tasks:
+    for task in filter(lambda t: t.deadline, tasks):
         if not duration_met(task,
-                            filter(lambda e: e.start and task.deadline and
+                            filter(lambda e: e.start and
                                    e.name == task.name and
                                    e.start+e.duration < task.deadline,
                                    events)):
@@ -158,38 +165,26 @@ def deadline_met(events, tasks):
 
 
 def non_overlapping(events):
-    for event1, event2 in combinations(events, 2):
-        if overlaps(event1, event2):
+    for event1, event2 in combinations(filter(lambda e: e.start, events), 2):
+        if event1.overlaps(event2) and event1 != event2:
             return False
     return True
 
 
-def overlaps(event1, event2):
-    if not event1.start or not event2.start:
-        return False
-    if event1.start < event2.start:
-        return event1.start + event1.duration > event2.start
-    elif event1.start > event2.start:
-        return event2.start + event2.duration > event1.start
-    else:
-        return False
 
-
-# Solution is a dict
-def csp_solve(solution, domain, constraints):
-    if is_consistent(solution, constraints) and is_complete(solution):
-        return solution
-
+def csp_solve(domain, constraints):
+    if is_complete(solution):
+        if is_consistent(solution, constraints):
+            return solution
+            
     temp_solution = solution
     for event in solution:
-        print(event.start)
         if not event.start:
             for candidate in domain[event]:
                 event.start = candidate
-                if csp_solve(solution, domain, constraints):
-                    return solution
-                else:
-                    csp_solve(temp_solution, domain, constraints)
+                if is_consistent(solution, constraints):
+                    return csp_solve(domain, constraints)
+                    
     return list()
 
 
@@ -212,6 +207,10 @@ def all_time_slots(start, end):
     return slots
 
 
+def print_solution(solution):
+    for event in solution:
+        print('%s %s' % (event.name, event.start))
+
 if __name__ == '__main__':
     tasks, events = read_data('schedule.txt')
     events += split_tasks(tasks)
@@ -219,9 +218,8 @@ if __name__ == '__main__':
 
     constraints = {
         non_overlapping,
-        lambda e: durations_met(e, tasks),
-        lambda e: deadline_met(e, tasks),
     }
-    
-    solution = csp_solve(events, domain, constraints)
-    print(solution)
+
+    solution = events
+    solution = csp_solve(domain, constraints)
+    print_solution(solution)
