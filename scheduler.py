@@ -31,6 +31,10 @@ class Event:
     def ends_before(self, event):
         return self.start + self.duration <= event.start
     
+    def meets(self, event):
+        return self.start + self.duration == event.start or \
+            event.start + event.duration == self.start
+    
     def overlaps(self, event):
         return not (event.ends_before(self) or self.ends_before(event))
 
@@ -62,6 +66,34 @@ def read_data(filename):
                 events.append(parse_event(line))
 
     return (tasks, events)
+
+
+def cooldown(events):
+    for event1, event2 in combinations(events, 2):
+        if event1.name == event2.name and event1.start and event2.start:
+            if abs(event1.start - event2.start) < event1.duration*2:
+                return False
+    return True
+
+
+def max_daily_constraint(tasks, event):
+    for task in filter(lambda t: t.max_dur_daily, tasks):
+        if max_daily_exceeded(
+                filter(lambda e: e.name == task.name, events), task):
+            return False
+    return True
+
+
+def max_daily_exceeded(events, task):
+    event_queue = list()
+    for event in sorted(events, key=lambda e: e.start):
+        duration = sum([e.duration for e in event_queue])
+        event.queue.append(event)
+        while abs(event_queue[0].start - event_queue[len(event_queue)-1]) > timedelta(days=1):
+            event_queue.pop(0)
+        if duration > task.max_dur_daily:
+            return False
+    return True
 
 
 def parse_task(line):
@@ -104,13 +136,13 @@ def split_tasks(tasks):
     for task in tasks:
         events += split_task(task)
     return events
-
+    
 
 def split_task(task):
     rem = task.duration
     events = list()
     while rem > timedelta():
-        duration = task.min_dur if task.min_dur < rem else rem
+        duration = task.max_dur if task.max_dur < rem else rem
         rem -= duration
         if duration == rem:
             rem == timedelta()
@@ -118,7 +150,7 @@ def split_task(task):
         events.append(Event(name=task.name,
                             start=None,
                             duration=duration))
-
+    
     return events
 
 
@@ -171,7 +203,6 @@ def non_overlapping(events):
     return True
 
 
-
 def csp_solve(domain, constraints):
     if is_complete(solution):
         if is_consistent(solution, constraints):
@@ -191,6 +222,7 @@ def csp_solve(domain, constraints):
 def init_domain(events):
     domain = dict()
     now = datetime.now()
+    now = now.replace(minute=int(round(float(now.minute)/15))*15)
     for event in events:
         if event.start:
             domain[event] = [event.start]
@@ -208,7 +240,7 @@ def all_time_slots(start, end):
 
 
 def print_solution(solution):
-    for event in solution:
+    for event in sorted(solution, key=lambda e: e.start):
         print('%s %s' % (event.name, event.start))
 
 if __name__ == '__main__':
@@ -218,6 +250,9 @@ if __name__ == '__main__':
 
     constraints = {
         non_overlapping,
+        cooldown,
+        lambda e: deadline_met(e, tasks),
+        lambda e: durations_met(e, tasks),
     }
 
     solution = events
