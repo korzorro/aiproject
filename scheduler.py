@@ -6,9 +6,14 @@ from datetime import datetime
 from itertools import combinations
 
 
+now = datetime.now()
+NOW = now.replace(minute=int(round(float(now.minute)/15))*15 % 60)
+MAX_TIME_SPAN = timedelta(days=14)
+
+
 class Task:
     def __init__(self, name=None, deadline=None, duration=None, min_dur=None,
-                 max_dur=None, max_dur_daily=None, recurrence=None):
+                 max_dur=None, max_dur_daily=None, recurrence=None, range=None):
         self.name = name
         self.deadline = deadline
         self.duration = duration
@@ -16,6 +21,7 @@ class Task:
         self.max_dur = max_dur
         self.max_dur_daily = max_dur_daily
         self.recurrence = recurrence
+        self.range = range
 
     def __hash__(self):
         return hash(self.name)
@@ -37,16 +43,19 @@ class Event:
     
     def overlaps(self, event):
         return not (event.ends_before(self) or self.ends_before(event))
-
+    
     def __hash__(self):
         return hash(self.name)
 
 
 class Recurrence:
-    def __init__(self, type=None, occurrences=None):
-        self.type = type
+    def __init__(self, interval=None, occurrences=None):
+        self.interval = interval
         self.occurrences = occurrences
 
+    def times(self):
+        return MAX_TIME_SPAN.days / self.interval.days
+    
     def __hash__(self):
         return hash(self.occurrences)
 
@@ -68,6 +77,29 @@ def read_data(filename):
     return (tasks, events)
 
 
+def within_range_constraint(events, tasks):
+    for task in filter(lambda t: t.range, tasks):
+        if not starts_ends_within_range(
+                filter(lambda e: event.name == task.name and event.start, events)
+                task):
+            return False
+    return True
+
+
+def starts_ends_within_range(events, task):
+    for event in events:
+        if task.range[0] < task.range[1]:
+            if event.start.time < task.range[0]:
+                return False
+            if event.start.time + event.duration > task.range[1]:
+                return False
+        else:
+            if event.start.time > task.range[0]:
+                return False
+            if event.start.time + event.duration < task.range[1]:
+                return False
+    return True
+
 def cooldown(events):
     for event1, event2 in combinations(events, 2):
         if event1.name == event2.name and event1.start and event2.start:
@@ -76,23 +108,51 @@ def cooldown(events):
     return True
 
 
-def max_daily_constraint(tasks, event):
+def max_daily_constraint(events, tasks):
     for task in filter(lambda t: t.max_dur_daily, tasks):
-        if max_daily_exceeded(
-                filter(lambda e: e.name == task.name, events), task):
+        if max_daily_exceeded(filter(lambda e: e.name == task.name and e.start, events), task):
             return False
     return True
 
 
 def max_daily_exceeded(events, task):
-    event_queue = list()
-    for event in sorted(events, key=lambda e: e.start):
-        duration = sum([e.duration for e in event_queue])
-        event.queue.append(event)
-        while abs(event_queue[0].start - event_queue[len(event_queue)-1]) > timedelta(days=1):
-            event_queue.pop(0)
-        if duration > task.max_dur_daily:
+    today = NOW.replace(hour=0, minute=0, second=0)
+    events = list(events)
+    if len(events) == 0:
+        return False
+    last_event = list(sorted(events, key=lambda e: e.start, reverse=True))[0]
+    while today < last_event.start:
+        total_duration = timedelta()
+        for event in filter(lambda e: e.start >= today and e.start < today + timedelta(days=1), events):
+            total_duration += event.duration
+        if total_duration > task.max_dur_daily:
+            return True
+        today += timedelta(days=1)
+    return False
+
+
+def recurring_constraint(events, tasks):
+    if not is_complete(events):
+        return True
+    for task in filter(lambda t: t.recurrence, tasks):
+        if not recurrence_met(filter(lambda e: e.start and e.name == task.name, events), task):
             return False
+    return True
+
+
+def recurrence_met(events, task):
+    today = NOW.replace(hour=0, minute=0, second=0)
+    events = list(events)
+    if len(events) == 0:
+        return False
+    last_event = list(sorted(events, key=lambda e: e.start, reverse=True))[0]
+    while today < last_event.start:
+        total_duration = timedelta()
+        for event in filter(lambda e: e.start >= today and e.start < today + task.recurrence.interval, events):
+            total_duration += event.duration
+        if total_duration < task.duration:
+            return False
+        today += task.recurrence.interval
     return True
 
 
@@ -126,7 +186,7 @@ def strf_datetime(s):
 
 def parse_recurrence(s):
     try:
-        return Recurrence(type=s[0], occurrences=int(s[1:]))
+        return Recurrence(interval=timedelta(days=int(s[:2])), occurrences=int(s[2:]))
     except:
         None
 
@@ -136,10 +196,12 @@ def split_tasks(tasks):
     for task in tasks:
         events += split_task(task)
     return events
-    
+
 
 def split_task(task):
     rem = task.duration
+    if task.recurrence:
+        rem *= task.recurrence.times()
     events = list()
     while rem > timedelta():
         duration = task.max_dur if task.max_dur < rem else rem
@@ -203,31 +265,29 @@ def non_overlapping(events):
     return True
 
 
-def csp_solve(domain, constraints):
+def csp_solve(solution, domain, constraints):
     if is_complete(solution):
         if is_consistent(solution, constraints):
-            return solution
-            
-    temp_solution = solution
-    for event in solution:
-        if not event.start:
-            for candidate in domain[event]:
-                event.start = candidate
-                if is_consistent(solution, constraints):
-                    return csp_solve(domain, constraints)
-                    
-    return list()
+            print_solution(solution)
+            exit()
+
+    for event in filter(lambda e: not e.start, solution):
+        for candidate in domain[event]:
+            event.start = candidate
+            if is_consistent(solution, constraints):
+                return csp_solve(solution, domain, constraints)
+
+    print_solution(solution)
 
 
 def init_domain(events):
     domain = dict()
-    now = datetime.now()
-    now = now.replace(minute=int(round(float(now.minute)/15))*15)
+
     for event in events:
         if event.start:
             domain[event] = [event.start]
         else:
-            domain[event] = all_time_slots(now, now + timedelta(days=7))
+            domain[event] = all_time_slots(NOW, NOW + MAX_TIME_SPAN)
     return domain
 
 
@@ -251,10 +311,10 @@ if __name__ == '__main__':
     constraints = {
         non_overlapping,
         cooldown,
-        lambda e: deadline_met(e, tasks),
         lambda e: durations_met(e, tasks),
+        lambda e: deadline_met(e, tasks),
+        lambda e: max_daily_constraint(e, tasks),
+        lambda e: recurring_constraint(e, tasks),
     }
-
-    solution = events
-    solution = csp_solve(domain, constraints)
-    print_solution(solution)
+    
+    csp_solve(events, domain, constraints)
