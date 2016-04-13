@@ -59,7 +59,7 @@ def all_time_slots(start, end):
         start += timedelta(minutes=15)
     return slots
 
-
+    
 def is_consistent(tasks):
     def _is_consistent(solution):
         assigned = filter(lambda e: e.start, solution)
@@ -73,7 +73,6 @@ def is_consistent(tasks):
             return False
         if not deadlines_met(solution, tasks):
             return False
-        
         if not recurrence(solution, tasks):
             return False
         return True

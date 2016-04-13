@@ -5,6 +5,7 @@ from models import within_interval, divide_timedelta
 now = datetime.now()
 NOW = now.replace(minute=int(round(float(now.minute)/15))*15 % 60, second=0, microsecond=0)
 
+
 def is_complete(events):
     for event in events:
         if not event.start:
@@ -52,7 +53,7 @@ def cooldown(events):
     events = sorted(events, key=lambda e: e.start)
     for i in range(len(events)-1):
         event1, event2 = (events[i], events[i+1])
-        if event1.name == event2.name and event2.start - event1.start < event1.duration*2:
+        if event1.name == event2.name and event2.start - event1.start < event1.duration*3/2:
             return False
     return True
 
@@ -82,10 +83,13 @@ def max_daily_exceeded(events, task):
 
 def recurrence(events, tasks):
     for task in filter(lambda t: t.recurrence, tasks):
+        '''
+        if len(corresponding_events) == len(scheduled_tasks):
+        '''
         corresponding_events = list(filter(lambda e: e.name == task.name, events))
         scheduled_tasks = list(filter(lambda e: e.start, corresponding_events))
-        if len(corresponding_events) == len(scheduled_tasks):
-            if not recurrence_met(filter(lambda e: e.name == task.name, events), task):
+        if sum_duration(scheduled_tasks) >= task.duration:
+            if not recurrence_met(filter(lambda e: e.name == task.name and e.start, events), task):
                 return False
     return True
 
@@ -98,18 +102,38 @@ def recurrence_met(events, task):
     for i in range(num_intervals):
         total_duration = timedelta()
         start = cur + (interval * i)
-        end = start + interval
+        end = start + interval + timedelta(minutes=5)
         interval_events = filter(lambda e: within_interval(start, end, e.start), events)
-        if not duration_met(interval_events, task):
-            '''
+        total_flag = False
+        for e in interval_events:
+            total_duration += e.duration
+            if total_duration >= task.duration:
+                if total_flag:
+                    '''
+                    print(task.name)
+                    for event in interval_events:
+                        print(event.start)
+                    '''
+                    return False
+                else:
+                    total_flag = True
+        ''''
+        if not total_duration >= task.duration:
             print(task.name)
+            print(total_duration)
+            print(task.duration)
+
+            print(task.name)
+            print(start)
+            print(end)
+
             for event in events:
                 print(event.start)
             print('*'*100)
             for event in interval_events:
                 print(event.start)
             return False
-            '''
+        '''
     return True
 
 
