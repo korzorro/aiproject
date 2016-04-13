@@ -1,6 +1,7 @@
 from csv import reader
 from models import Task, Event, Recurrence
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+from copy import deepcopy
 
 tformat = '%Y/%m/%d%H:%M'
 
@@ -16,7 +17,7 @@ def parse_data(filename):
             if line[0] == 'Event':
                 events.append(parse_event(line))
 
-    return (tasks, events + split_tasks(tasks))
+    return (tasks, repeat_recurring_events(events) + split_tasks(tasks))
 
 
 def parse_task(line):
@@ -26,15 +27,25 @@ def parse_task(line):
                 min_dur=strf_timedelta(line[4]),
                 max_dur=strf_timedelta(line[5]),
                 max_dur_daily=strf_timedelta(line[6]),
-                recurrence=parse_recurrence(line[7]))
+                recurrence=parse_recurrence(line[7]),
+                time_range=parse_time_range(line[8]))
 
 
 def parse_event(line):
-    return Event(name=line[1],
-                 start=datetime.strptime(line[2], tformat),
-                 duration=strf_timedelta(line[3]))
+     return Event(name=line[1],
+                  start=datetime.strptime(line[2], tformat),
+                  duration=strf_timedelta(line[3]),
+                  recurrence=parse_recurrence(line[4]))
 
 
+def parse_time_range(s):
+    try:
+        time_range = tuple(map(lambda t: datetime.strptime(t, '%H:%M').time(), s.split('-')))
+        return time_range
+    except:
+        return None
+    
+ 
 def parse_recurrence(line):
     try:
         return Recurrence(interval=timedelta(days=int(line[:2])), occurrences=int(line[2:]))
@@ -60,6 +71,19 @@ def split_tasks(tasks):
         events += split_task(task)
     return events
 
+
+def repeat_recurring_events(events):
+    all_events = list()
+    for event in events:
+        if event.recurrence:
+            for i in range(event.recurrence.times()):
+                e = deepcopy(event)
+                e.start += event.recurrence.interval * i
+                all_events.append(e)
+        else:
+            all_events.append(e)
+
+    return all_events
 
 def split_task(task):
     rem = task.duration
