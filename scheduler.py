@@ -24,7 +24,7 @@ def csp_solve(solution, domain, is_consistent):
             event.start = candidate
             if is_consistent(solution):
                 sln = csp_solve(solution, domain, is_consistent)
-                if sln != None:
+                if sln is not None:
                     print('this')
                     print_schedule(sln)
                     exit()
@@ -62,7 +62,7 @@ def all_time_slots(start, end):
     
 def is_consistent(tasks):
     def _is_consistent(solution):
-        assigned = filter(lambda e: e.start, solution)
+        assigned = list(filter(lambda e: e.start, solution))
         if not inrange(assigned, tasks):
             return False
         if not cooldown(assigned):

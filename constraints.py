@@ -4,6 +4,7 @@ from models import within_interval, divide_timedelta
 
 now = datetime.now()
 NOW = now.replace(minute=int(round(float(now.minute)/15))*15 % 60, second=0, microsecond=0)
+MAX_TIME_SPAN = timedelta(days=14)
 
 
 def is_complete(events):
@@ -13,39 +14,33 @@ def is_complete(events):
     return True
 
 
-def inrange(events, tasks):
-    for task in filter(lambda t: t.time_range_lower, tasks):
-        for event in filter(lambda e: e.name == task.name, events):
-            if event.start.time() < task.time_range_lower:
-                if task.time_range_lower > task.time_range_upper:
-                    if event.start.time() > task.time_range_upper:
-                        return False
-                else:
-                    return False
-            if event.end.time() > task.time_range_upper:
-                if task.time_range_lower > task.time_range_upper:
-                    if event.end.time() < task.time_range_lower:
-                        return False
-                else:
-                    return False
-            if event.start.time() > event.end.time():
-                if task.time_range_upper > task.time_range_lower:
-                    return False
+def inbetween(event, task):
+    if event.start.time() < task.time_range_lower:
+        if task.time_range_lower > task.time_range_upper:
+            if event.start.time() > task.time_range_upper:
+                return False
+        else:
+            return False
+    if event.end.time() > task.time_range_upper:
+        if task.time_range_lower > task.time_range_upper:
+            if event.end.time() < task.time_range_lower:
+                return False
+        else:
+            return False
+    if event.start.time() > event.end.time():
+        if task.time_range_upper > task.time_range_lower:
+            return False
     return True
 
 
-def starts_ends_within_range(events, task):
-    for event in events:
-        if task.range[0] < task.range[1]:
-            if event.start.time < task.range[0]:
-                return False
-            if event.start.time + event.duration > task.range[1]:
-                return False
-        else:
-            if event.start.time > task.range[0]:
-                return False
-            if event.start.time + event.duration < task.range[1]:
-                return False
+def inrange(events, tasks):
+    for task in tasks:
+        if task.time_range_lower:
+            for event in events:
+                if event.name == task.name:
+                    if not inbetween(event, task):
+                        return False
+
     return True
 
 
@@ -59,24 +54,56 @@ def cooldown(events):
 
 
 def max_daily(events, tasks):
-    for task in filter(lambda t: t.max_dur_daily, tasks):
-        if max_daily_exceeded(filter(lambda e: e.name == task.name, events), task):
-            return False
+    today = NOW.replace(hour=0, minute=0)
+    endday = today + timedelta(days=1) - timedelta(minutes=5)
+    for task in tasks:
+        if task.max_dur_daily:
+            e = sorted(events, key=lambda e: e.start)
+            duration = timedelta()
+            a = list()
+            for event in e:
+                if event.name == task.name:
+                    if event.start > today and event.start < endday:
+                        a.append(event)
+                        duration += event.duration
+                    else:
+                        a = list()
+                        duration = timedelta()
+                        today += timedelta(days=1)
+                        endday += timedelta(days=1)
+                    if duration > task.max_dur_daily:
+                        '''
+                        print(duration)
+                        print(task.max_dur_daily)
+                        for g in a:
+                            print(g.start)
+                        '''
+                        return False
     return True
+
+
+def bucketize(l, buckets, key=lambda e: e):
+    buck = [list() for i in range(len(buckets)-1)]
+    for e in l:
+        for i, b in enumerate(buckets):
+            if key(e) < b:
+                buck[i-1].append(e)
+                break
+    return buck
 
 
 def max_daily_exceeded(events, task):
     today = NOW.replace(hour=0, minute=0)
-    events = list(events)
-    if len(events) == 0:
-        return False
-    last_event = list(sorted(events, key=lambda e: e.start, reverse=True))[0]
-    while today < last_event.start:
+    day = timedelta(days=1)
+    days = divide_timedelta(MAX_TIME_SPAN, day)
+    b = [today + (i * day) for i in range(days)]
+    buckets = bucketize(events, b, key=lambda e: e.start)
+    for bucket in buckets:
         total_duration = timedelta()
-        for event in filter(lambda e: e.start >= today and e.start < today + timedelta(days=1), events):
+        for event in bucket:
             total_duration += event.duration
-        if total_duration > task.max_dur_daily:
-            return True
+            if total_duration > task.max_dur_daily:
+                return True
         today += timedelta(days=1)
     return False
 
@@ -169,7 +196,10 @@ def deadlines_met(events, tasks):
 
 
 def non_overlapping(events):
-    for event1, event2 in combinations(events, 2):
+    events = list(sorted(events, key=lambda e: e.start))
+    for i in range(len(events)-1):
+        event1 = events[i]
+        event2 = events[i+1]
         if event1.overlaps(event2):
             return False
     return True
