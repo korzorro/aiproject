@@ -1,0 +1,10 @@
+name,start,duration,repeat_frequency,repeat_quantity
+Computer Security,2016-08-29 12:00,1,7,16
+Computer Security,2016-08-31 12:00,1,7,16
+Computer Security,2016-09-02 12:00,1,7,16
+Computer Organization,2016-08-29 14:00,1,7,16
+Computer Organization,2016-08-31 14:00,1,7,16
+Computer Organization,2016-09-02 14:00,1,7,16
+Database Systems,2016-08-30 11:00,1.25,7,16
+Database Systems,2016-09-01 11:00,1.25,7,16
+Independent Study,2016-09-02 15:00,1,7,16

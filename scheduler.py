@@ -1,4 +1,3 @@
-#!/venv/bin/python
 from datetime import datetime, timedelta
 from models import Task, Event, Recurrence
 from parser import parse_data
@@ -20,7 +19,7 @@ def csp_solve(solution, domain, is_consistent):
             return solution
         
     for event in filter(lambda e: not e.start, solution):
-        for candidate in domain[event]:
+        for candidate in event.domain:
             event.start = candidate
             if is_consistent(solution):
                 sln = csp_solve(solution, domain, is_consistent)

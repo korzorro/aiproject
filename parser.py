@@ -1,104 +1,87 @@
-from csv import reader
-from models import Task, Event, Recurrence
-from datetime import datetime, timedelta, time
-from copy import deepcopy
+from csv import DictReader
+from models import Task, Event
+from datetime import datetime, timedelta
 
-tformat = '%Y/%m/%d%H:%M'
+date_format = '%Y-%m-%d'
+time_format = '%H:%M'
+datetime_format = '%Y-%m-%d %H:%M'
 
 
-def parse_data(filename):
-    tasks = list()
-    events = list()
+def parse_events(events_file, min_datetime, max_datetime, resolution):
+    return [parse_event(event, min_datetime, max_datetime, resolution)
+            for event in get_data(events_file)]
+
+
+def parse_tasks(tasks_file, min_datetime, max_datetime, resolution):
+    return [parse_task(task, min_datetime, max_datetime) for task in get_data(tasks_file)]
+
+
+def get_data(filename):
     with open(filename) as csvfile:
-        csv = reader(csvfile)
-        for line in csv:
-            if line[0] == 'Task':
-                tasks.append(parse_task(line))
-            if line[0] == 'Event':
-                events.append(parse_event(line))
+         return [line for line in DictReader(csvfile)]
 
-    return (tasks, repeat_recurring_events(events) + split_tasks(tasks))
+def max_repeat_quantity(min_datetime, max_datetime, repeat_frequency, repeat_quantity):
+    max_repeat_quantity = int(
+        (max_datetime - min_datetime).total_seconds() / repeat_frequency.total_seconds())
+    if repeat_quantity == 0:
+        return max_repeat_quantity
+    return min([max_repeat_quantity, repeat_quantity])
+
+def parse_task(task, min_datetime, max_datetime, resolution):
+    repeat_quantity = int(task['repeat_quantity']) if task['repeat_quantity'] else 0
+    repeat_frequency = parse_repeat_frequency(task['repeat_frequency'])
+    if repeat_frequency:
+        repeat_quantity = max_repeat_quantity(
+            min_datetime, max_datetime, repeat_frequency, repeat_quantity)
+    # Come back here to make sure start times don't start after max datetime
+    return Task(name=task['name'],
+                start=parse_datetime(task['start']),
+                due=parse_datetime(task['due']),
+                duration=parse_timedelta(task['duration']),
+                min_duration=parse_timedelta(task['min_duration']),
+                max_duration=parse_timedelta(task['max_duration']),
+                max_daily_duration=parse_timedelta(task['max_daily_duration']),
+                repeat_frequency=repeat_frequency,
+                repeat_quantity=repeat_quantity,
+                time_range=parse_time_range(task['time_range']))
 
 
-def parse_task(line):
-    return Task(name=line[1],
-                deadline=strf_datetime(line[2]),
-                duration=strf_timedelta(line[3]),
-                min_dur=strf_timedelta(line[4]),
-                max_dur=strf_timedelta(line[5]),
-                max_dur_daily=strf_timedelta(line[6]),
-                recurrence=parse_recurrence(line[7]),
-                time_range=parse_time_range(line[8]))
+def parse_event(event, min_datetime, max_datetime, resolution):
+    start = parse_datetime(event['start'])
+    repeat_frequency = parse_repeat_frequency(event['repeat_frequency'])
+    repeat_quantity = int(event['repeat_quantity']) if event['repeat_quantity'] else 0
+    if repeat_frequency:
+        if repeat_frequency:
+            repeat_quantity = max_repeat_quantity(
+                min_datetime, max_datetime, repeat_frequency, repeat_quantity)
+    duration = max_datetime - min_datetime
+    domain_length = int(duration.total_seconds() / resolution.total_seconds())
+    domain = {start + (resolution * step) for step in range(domain_length)}
+    events = list()
+    for i in range(repeat_quantity+1):
+        events.append(
+            Event(name=event['name'],
+                  start=start+(repeat_frequency*i),
+                  duration=parse_timedelta(event['duration']),
+                  domain=domain))
+    return events
+ 
+def parse_datetime(s):
+    return datetime.strptime(s, datetime_format) if s else None
 
 
-def parse_event(line):
-     return Event(name=line[1],
-                  start=datetime.strptime(line[2], tformat),
-                  duration=strf_timedelta(line[3]),
-                  recurrence=parse_recurrence(line[4]))
+def parse_timedelta(hours):
+    return timedelta(hours=int(float(hours)),
+                     minutes=60*(float(hours)-int(float(hours)))) if hours else None
 
 
 def parse_time_range(s):
-    try:
-        time_range = tuple(map(lambda t: datetime.strptime(t, '%H:%M').time(), s.split('-')))
-        return time_range
-    except:
-        return None
+    return list(map(lambda t: datetime.strptime(t, time_format).time(), s.split('-'))) \
+        if s else None
     
  
-def parse_recurrence(line):
-    try:
-        return Recurrence(interval=timedelta(days=int(line[:2])), occurrences=int(line[2:]))
-    except:
-        None
+def parse_repeat_frequency(days):
+    return timedelta(days=int(days)) if days else None
 
-
-def strf_timedelta(s):
-    try:
-        return timedelta(hours=int(s[:2]), minutes=int(s[3:]))
-    except:
-        return None
-
-
-def strf_datetime(datetime_string):
-    if len(datetime_string) > 0:
-        datetime.strptime(datetime_string, tformat)
-
-
-def split_tasks(tasks):
-    events = list()
-    for task in tasks:
-        events += split_task(task)
-    return events
-
-
-def repeat_recurring_events(events):
-    all_events = list()
-    for event in events:
-        if event.recurrence:
-            for i in range(event.recurrence.times()):
-                e = deepcopy(event)
-                e.start += event.recurrence.interval * i
-                all_events.append(e)
-        else:
-            all_events.append(e)
-
-    return all_events
-
-def split_task(task):
-    rem = task.duration
-    if task.recurrence:
-        rem *= task.recurrence.times()
-    events = list()
-    while rem > timedelta():
-        duration = task.max_dur if task.max_dur < rem else rem
-        rem -= duration
-        if duration == rem:
-            rem == timedelta()
-
-        events.append(Event(name=task.name,
-                            start=None,
-                            duration=duration))
-    
-    return events
-
+events = parse_events('schedule1/events.csv', datetime.now(), datetime.now() + timedelta(days=14), timedelta(minutes=15))
+print(events)
